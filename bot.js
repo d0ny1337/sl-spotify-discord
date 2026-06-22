@@ -1,13 +1,7 @@
 require("dotenv").config();
 
 const express = require("express");
-
-const {
-    Client,
-    GatewayIntentBits,
-    ActivityType,
-    Events
-} = require("discord.js");
+const { Client, GatewayIntentBits, ActivityType, Events } = require("discord.js");
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const PORT = process.env.PORT || 3000;
@@ -34,27 +28,15 @@ function formatMsToTime(ms) {
 
 function getTimestampMs(value) {
     if (!value) return null;
-
-    if (value instanceof Date) {
-        return value.getTime();
-    }
-
-    if (typeof value === "number") {
-        return value;
-    }
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === "number") return value;
 
     if (typeof value === "string") {
         const parsedDate = Date.parse(value);
-
-        if (!Number.isNaN(parsedDate)) {
-            return parsedDate;
-        }
+        if (!Number.isNaN(parsedDate)) return parsedDate;
 
         const parsedNumber = Number(value);
-
-        if (!Number.isNaN(parsedNumber)) {
-            return parsedNumber;
-        }
+        if (!Number.isNaN(parsedNumber)) return parsedNumber;
     }
 
     return null;
@@ -68,21 +50,18 @@ function getCurrentSpotifyData() {
         };
     }
 
-    let progressText = "??:??";
-    let durationText = "??:??";
+    const now = Date.now();
 
-    if (currentSpotify.start && currentSpotify.end) {
-        const now = Date.now();
+    let progressMs =
+        currentSpotify.baseProgressMs + (now - currentSpotify.receivedAtMs);
 
-        let progressMs = now - currentSpotify.start;
-        let durationMs = currentSpotify.end - currentSpotify.start;
+    let durationMs = currentSpotify.durationMs;
 
-        if (progressMs < 0) progressMs = 0;
-        if (progressMs > durationMs) progressMs = durationMs;
+    if (progressMs < 0) progressMs = 0;
+    if (progressMs > durationMs) progressMs = durationMs;
 
-        progressText = formatMsToTime(progressMs);
-        durationText = formatMsToTime(durationMs);
-    }
+    const progressText = formatMsToTime(progressMs);
+    const durationText = formatMsToTime(durationMs);
 
     const text =
         `🎵 Spotify ▶\n` +
@@ -97,10 +76,8 @@ function getCurrentSpotifyData() {
         track: currentSpotify.track,
         progress: progressText,
         duration: durationText,
-        rawStart: currentSpotify.rawStart,
-        rawEnd: currentSpotify.rawEnd,
-        start: currentSpotify.start,
-        end: currentSpotify.end,
+        progressMs,
+        durationMs,
         text
     };
 }
@@ -108,9 +85,6 @@ function getCurrentSpotifyData() {
 client.once(Events.ClientReady, () => {
     console.log(`Бот запущен: ${client.user.tag}`);
     console.log("Ожидаю изменения Discord Presence...");
-    console.log("API сервер доступен на:");
-    console.log(`http://localhost:${PORT}/now-playing`);
-    console.log(`http://localhost:${PORT}/now-playing-text`);
 });
 
 client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
@@ -137,62 +111,52 @@ client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
             currentSpotify = null;
             console.log("Spotify остановлен или скрыт.");
         }
-
         return;
     }
 
     const track = spotifyActivity.details || "Unknown track";
     const artist = spotifyActivity.state || "Unknown artist";
 
-    const rawStart = spotifyActivity.timestamps?.start || null;
-    const rawEnd = spotifyActivity.timestamps?.end || null;
+    const start = getTimestampMs(spotifyActivity.timestamps?.start);
+    const end = getTimestampMs(spotifyActivity.timestamps?.end);
 
-    const start = getTimestampMs(rawStart);
-    const end = getTimestampMs(rawEnd);
+    let durationMs = 0;
+    let baseProgressMs = 0;
+
+    if (start && end) {
+        durationMs = end - start;
+
+        // Важно: если часы Render и Discord расходятся,
+        // не даём прогрессу застрять на 00:00.
+        baseProgressMs = Date.now() - start;
+
+        if (baseProgressMs < 0) baseProgressMs = 0;
+        if (baseProgressMs > durationMs) baseProgressMs = 0;
+    }
 
     currentSpotify = {
         username,
         discordUserId,
         artist,
         track,
-        rawStart,
-        rawEnd,
         start,
-        end
+        end,
+        durationMs,
+        baseProgressMs,
+        receivedAtMs: Date.now()
     };
 
     const data = getCurrentSpotifyData();
 
-    console.clear();
     console.log("=================================");
     console.log("SPOTIFY НАЙДЕН");
     console.log(`Пользователь: ${username}`);
     console.log(`Discord ID: ${discordUserId}`);
     console.log(`Исполнитель: ${artist}`);
     console.log(`Трек: ${track}`);
-    console.log(`rawStart: ${rawStart}`);
-    console.log(`rawEnd: ${rawEnd}`);
-    console.log(`start: ${start}`);
-    console.log(`end: ${end}`);
     console.log(`Прогресс: ${data.progress} / ${data.duration}`);
     console.log("=================================");
 });
-
-setInterval(() => {
-    if (!currentSpotify) return;
-
-    const data = getCurrentSpotifyData();
-
-    console.clear();
-    console.log("=================================");
-    console.log("SPOTIFY ТЕКУЩИЙ ПРОГРЕСС");
-    console.log(`Пользователь: ${data.username}`);
-    console.log(`Discord ID: ${data.discordUserId}`);
-    console.log(`Исполнитель: ${data.artist}`);
-    console.log(`Трек: ${data.track}`);
-    console.log(`Прогресс: ${data.progress} / ${data.duration}`);
-    console.log("=================================");
-}, 1000);
 
 const app = express();
 

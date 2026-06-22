@@ -64,7 +64,6 @@ function getCurrentSpotifyData() {
     const durationText = formatMsToTime(durationMs);
 
     const text =
-        `🎵 Spotify ▶\n` +
         `${currentSpotify.artist} — ${currentSpotify.track}\n` +
         `${progressText} / ${durationText}`;
 

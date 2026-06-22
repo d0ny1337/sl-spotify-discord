@@ -35,11 +35,29 @@ function formatMsToTime(ms) {
 function getTimestampMs(value) {
     if (!value) return null;
 
-    if (value.getTime) {
+    if (value instanceof Date) {
         return value.getTime();
     }
 
-    return Number(value);
+    if (typeof value === "number") {
+        return value;
+    }
+
+    if (typeof value === "string") {
+        const parsedDate = Date.parse(value);
+
+        if (!Number.isNaN(parsedDate)) {
+            return parsedDate;
+        }
+
+        const parsedNumber = Number(value);
+
+        if (!Number.isNaN(parsedNumber)) {
+            return parsedNumber;
+        }
+    }
+
+    return null;
 }
 
 function getCurrentSpotifyData() {
@@ -79,6 +97,10 @@ function getCurrentSpotifyData() {
         track: currentSpotify.track,
         progress: progressText,
         duration: durationText,
+        rawStart: currentSpotify.rawStart,
+        rawEnd: currentSpotify.rawEnd,
+        start: currentSpotify.start,
+        end: currentSpotify.end,
         text
     };
 }
@@ -86,7 +108,7 @@ function getCurrentSpotifyData() {
 client.once(Events.ClientReady, () => {
     console.log(`Бот запущен: ${client.user.tag}`);
     console.log("Ожидаю изменения Discord Presence...");
-    console.log("API сервер будет доступен на:");
+    console.log("API сервер доступен на:");
     console.log(`http://localhost:${PORT}/now-playing`);
     console.log(`http://localhost:${PORT}/now-playing-text`);
 });
@@ -122,14 +144,19 @@ client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
     const track = spotifyActivity.details || "Unknown track";
     const artist = spotifyActivity.state || "Unknown artist";
 
-    const start = getTimestampMs(spotifyActivity.timestamps?.start);
-    const end = getTimestampMs(spotifyActivity.timestamps?.end);
+    const rawStart = spotifyActivity.timestamps?.start || null;
+    const rawEnd = spotifyActivity.timestamps?.end || null;
+
+    const start = getTimestampMs(rawStart);
+    const end = getTimestampMs(rawEnd);
 
     currentSpotify = {
         username,
         discordUserId,
         artist,
         track,
+        rawStart,
+        rawEnd,
         start,
         end
     };
@@ -143,6 +170,10 @@ client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
     console.log(`Discord ID: ${discordUserId}`);
     console.log(`Исполнитель: ${artist}`);
     console.log(`Трек: ${track}`);
+    console.log(`rawStart: ${rawStart}`);
+    console.log(`rawEnd: ${rawEnd}`);
+    console.log(`start: ${start}`);
+    console.log(`end: ${end}`);
     console.log(`Прогресс: ${data.progress} / ${data.duration}`);
     console.log("=================================");
 });

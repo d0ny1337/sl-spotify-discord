@@ -1,10 +1,18 @@
 require("dotenv").config();
 
 const express = require("express");
-const { Client, GatewayIntentBits, ActivityType, Events } = require("discord.js");
+const {
+    Client,
+    GatewayIntentBits,
+    ActivityType,
+    Events,
+    SlashCommandBuilder
+} = require("discord.js");
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const PORT = process.env.PORT || 3000;
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "https://sl-spotify-discord.onrender.com";
+const GUILD_ID = process.env.GUILD_ID || null;
 
 const client = new Client({
     intents: [
@@ -14,7 +22,6 @@ const client = new Client({
     ]
 });
 
-// discordUserId -> spotify data
 const spotifyByUserId = new Map();
 
 function formatMsToTime(ms) {
@@ -90,9 +97,47 @@ function getFirstActiveData() {
     return buildSpotifyData(first);
 }
 
-client.once(Events.ClientReady, () => {
+async function registerCommands() {
+    const linkCommand = new SlashCommandBuilder()
+        .setName("link")
+        .setDescription("Получить персональную ссылку для Second Life Spotify display");
+
+    if (GUILD_ID) {
+        const guild = await client.guilds.fetch(GUILD_ID);
+        await guild.commands.set([linkCommand]);
+        console.log(`Команда /link зарегистрирована на сервере ${GUILD_ID}`);
+    } else {
+        await client.application.commands.set([linkCommand]);
+        console.log("Команда /link зарегистрирована глобально. Может появиться не сразу.");
+    }
+}
+
+client.once(Events.ClientReady, async () => {
     console.log(`Бот запущен: ${client.user.tag}`);
     console.log("Ожидаю Spotify Presence...");
+
+    try {
+        await registerCommands();
+    } catch (error) {
+        console.error("Ошибка регистрации /link:", error);
+    }
+});
+
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === "link") {
+        const discordId = interaction.user.id;
+        const url = `${PUBLIC_BASE_URL}/user/${discordId}/text`;
+
+        await interaction.reply({
+            content:
+                `Ваша персональная ссылка для Second Life:\n\n` +
+                `${url}\n\n` +
+                `Вставьте её в LSL-скрипт один раз. Она будет постоянной.`,
+            ephemeral: true
+        });
+    }
 });
 
 client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
@@ -169,7 +214,6 @@ app.get("/", (req, res) => {
     res.type("text/plain").send("SL Spotify Discord Bot API is running");
 });
 
-// fallback: первый активный пользователь
 app.get("/now-playing", (req, res) => {
     res.json(getFirstActiveData());
 });
@@ -179,7 +223,6 @@ app.get("/now-playing-text", (req, res) => {
     res.type("text/plain").send(data.text);
 });
 
-// конкретный пользователь по Discord ID
 app.get("/user/:discordId", (req, res) => {
     const data = getUserData(req.params.discordId);
     res.json(data);

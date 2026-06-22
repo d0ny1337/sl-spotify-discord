@@ -14,7 +14,8 @@ const client = new Client({
     ]
 });
 
-let currentSpotify = null;
+// discordUserId -> spotify data
+const spotifyByUserId = new Map();
 
 function formatMsToTime(ms) {
     if (!ms || ms < 0) return "00:00";
@@ -42,37 +43,36 @@ function getTimestampMs(value) {
     return null;
 }
 
-function getCurrentSpotifyData() {
-    if (!currentSpotify) {
+function buildSpotifyData(saved) {
+    if (!saved) {
         return {
             playing: false,
-            text: "🎵 Spotify\nNothing playing"
+            text: "Nothing playing"
         };
     }
 
     const now = Date.now();
 
-    let progressMs =
-        currentSpotify.baseProgressMs + (now - currentSpotify.receivedAtMs);
-
-    let durationMs = currentSpotify.durationMs;
+    let progressMs = saved.baseProgressMs + (now - saved.receivedAtMs);
+    let durationMs = saved.durationMs;
 
     if (progressMs < 0) progressMs = 0;
-    if (progressMs > durationMs) progressMs = durationMs;
+    if (durationMs < 0) durationMs = 0;
+    if (durationMs > 0 && progressMs > durationMs) progressMs = durationMs;
 
     const progressText = formatMsToTime(progressMs);
     const durationText = formatMsToTime(durationMs);
 
     const text =
-        `${currentSpotify.artist} — ${currentSpotify.track}\n` +
+        `${saved.artist} — ${saved.track}\n` +
         `${progressText} / ${durationText}`;
 
     return {
         playing: true,
-        username: currentSpotify.username,
-        discordUserId: currentSpotify.discordUserId,
-        artist: currentSpotify.artist,
-        track: currentSpotify.track,
+        username: saved.username,
+        discordUserId: saved.discordUserId,
+        artist: saved.artist,
+        track: saved.track,
         progress: progressText,
         duration: durationText,
         progressMs,
@@ -81,9 +81,18 @@ function getCurrentSpotifyData() {
     };
 }
 
+function getUserData(discordUserId) {
+    return buildSpotifyData(spotifyByUserId.get(discordUserId));
+}
+
+function getFirstActiveData() {
+    const first = spotifyByUserId.values().next().value;
+    return buildSpotifyData(first);
+}
+
 client.once(Events.ClientReady, () => {
     console.log(`Бот запущен: ${client.user.tag}`);
-    console.log("Ожидаю изменения Discord Presence...");
+    console.log("Ожидаю Spotify Presence...");
 });
 
 client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
@@ -106,9 +115,9 @@ client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
     );
 
     if (!spotifyActivity) {
-        if (currentSpotify && currentSpotify.discordUserId === discordUserId) {
-            currentSpotify = null;
-            console.log("Spotify остановлен или скрыт.");
+        if (spotifyByUserId.has(discordUserId)) {
+            spotifyByUserId.delete(discordUserId);
+            console.log(`Spotify остановлен: ${username} (${discordUserId})`);
         }
         return;
     }
@@ -124,16 +133,13 @@ client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
 
     if (start && end) {
         durationMs = end - start;
-
-        // Важно: если часы Render и Discord расходятся,
-        // не даём прогрессу застрять на 00:00.
         baseProgressMs = Date.now() - start;
 
         if (baseProgressMs < 0) baseProgressMs = 0;
         if (baseProgressMs > durationMs) baseProgressMs = 0;
     }
 
-    currentSpotify = {
+    spotifyByUserId.set(discordUserId, {
         username,
         discordUserId,
         artist,
@@ -143,12 +149,12 @@ client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
         durationMs,
         baseProgressMs,
         receivedAtMs: Date.now()
-    };
+    });
 
-    const data = getCurrentSpotifyData();
+    const data = getUserData(discordUserId);
 
     console.log("=================================");
-    console.log("SPOTIFY НАЙДЕН");
+    console.log("SPOTIFY ОБНОВЛЁН");
     console.log(`Пользователь: ${username}`);
     console.log(`Discord ID: ${discordUserId}`);
     console.log(`Исполнитель: ${artist}`);
@@ -163,12 +169,24 @@ app.get("/", (req, res) => {
     res.type("text/plain").send("SL Spotify Discord Bot API is running");
 });
 
+// fallback: первый активный пользователь
 app.get("/now-playing", (req, res) => {
-    res.json(getCurrentSpotifyData());
+    res.json(getFirstActiveData());
 });
 
 app.get("/now-playing-text", (req, res) => {
-    const data = getCurrentSpotifyData();
+    const data = getFirstActiveData();
+    res.type("text/plain").send(data.text);
+});
+
+// конкретный пользователь по Discord ID
+app.get("/user/:discordId", (req, res) => {
+    const data = getUserData(req.params.discordId);
+    res.json(data);
+});
+
+app.get("/user/:discordId/text", (req, res) => {
+    const data = getUserData(req.params.discordId);
     res.type("text/plain").send(data.text);
 });
 
